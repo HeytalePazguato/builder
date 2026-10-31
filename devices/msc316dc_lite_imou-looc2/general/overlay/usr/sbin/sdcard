@@ -8,7 +8,8 @@
 # is ever executed.
 MP=/mnt/sdcard
 LOCK=/var/run/sdcard.lock
-OPTS=noatime,nodev,nosuid,noexec
+# umask: fixed, or the files get the umask of whoever started the watcher
+OPTS=noatime,nodev,nosuid,noexec,umask=0022
 
 card_dev() {
 	[ -n "$SDCARD_DEV" ] && { echo "$SDCARD_DEV"; return; }
