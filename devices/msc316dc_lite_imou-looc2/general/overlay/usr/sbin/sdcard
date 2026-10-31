@@ -50,7 +50,7 @@ do_mount() {
 		fi
 		do_umount || return 1
 	fi
-	[ "$want" = rw ] && protect 0 || protect 1
+	if [ "$want" = rw ]; then protect 0; else protect 1; fi
 	mkdir -p "$MP" 2>/dev/null
 	mount -t vfat -o "$want,$OPTS" "$dev" "$MP" 2>/dev/null && return 0
 	grep -q '^exfat ' /proc/modules || modprobe exfat 2>/dev/null ||
@@ -63,7 +63,8 @@ do_mount() {
 
 # One caller at a time: the watcher and the streamer both use this.
 # The lock holds its owner's PID; it is only taken over once that process is
-# gone (killed mid-mount), never from a caller that is still working.
+# gone (killed mid-mount), never from a caller that is still working. A caller
+# still stuck after two minutes (a dying card) makes this one fail instead.
 n=0
 while ! mkdir "$LOCK" 2>/dev/null; do
 	owner=
@@ -75,6 +76,10 @@ while ! mkdir "$LOCK" 2>/dev/null; do
 	n=$((n + 1))
 	# No PID after a minute: left by a caller killed between mkdir and write
 	[ -z "$owner" ] && [ $n -gt 600 ] && rm -rf "$LOCK"
+	if [ $n -gt 1200 ]; then
+		echo "sdcard: busy (held by ${owner:-?})" >&2
+		exit 1
+	fi
 	usleep 100000
 done
 echo $$ > "$LOCK/pid"

@@ -1,8 +1,9 @@
 #!/bin/sh
 # SD card hot-plug for the Imou LOOC 2: the slot has no working card-detect
 # line, so the driver only finds a card when it loads. While no card is
-# present, re-probe the slot every 15 seconds; a card that shows up is
-# mounted read-only at /mnt/sdcard (see /usr/sbin/sdcard).
+# present, re-probe the slot every 15 seconds (every two minutes after the
+# first two); a card that shows up is mounted read-only at /mnt/sdcard (see
+# /usr/sbin/sdcard).
 PIDFILE=/var/run/sdwatch.pid
 
 card_gone() {
@@ -15,17 +16,26 @@ card_gone() {
 }
 
 watch() {
+	empty=0
 	while :; do
 		if [ -z "$(ls /sys/bus/mmc/devices 2>/dev/null)" ]; then
 			grep -q " /mnt/sdcard " /proc/mounts && /usr/sbin/sdcard umount
-			if grep -q '^kdrv_sdmmc ' /proc/modules; then
+			# Every reload logs a few kernel lines: re-probe each time for the
+			# first two minutes without a card, then every two minutes.
+			empty=$((empty + 1))
+			if grep -q '^kdrv_sdmmc ' /proc/modules && { [ $empty -le 8 ] || [ $((empty % 8)) -eq 0 ]; }; then
 				rmmod kdrv_sdmmc 2>/dev/null && modprobe kdrv_sdmmc 2>/dev/null
 				sleep 2
 			fi
-		elif card_gone; then
-			/usr/sbin/sdcard umount
-			rmmod kdrv_sdmmc 2>/dev/null && modprobe kdrv_sdmmc 2>/dev/null
-			sleep 2
+		else
+			empty=0
+			# One failed read can be a slow or busy card: only a second one,
+			# a moment later, means it was pulled.
+			if card_gone && sleep 1 && card_gone; then
+				/usr/sbin/sdcard umount
+				rmmod kdrv_sdmmc 2>/dev/null && modprobe kdrv_sdmmc 2>/dev/null
+				sleep 2
+			fi
 		fi
 		if [ -n "$(ls /sys/bus/mmc/devices 2>/dev/null)" ] && ! grep -q " /mnt/sdcard " /proc/mounts; then
 			/usr/sbin/sdcard mount ro
